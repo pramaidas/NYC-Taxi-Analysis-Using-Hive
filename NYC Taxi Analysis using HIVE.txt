@@ -1,0 +1,610 @@
+-- ======================NYC Assignment===========================
+
+-- Running all the queries in pramai_das
+
+use pramai_das
+
+-- ======================Pre-requisite===========================
+
+-- Adding JAR file
+-- These commands are prerequisites for running the code in the lab without error:
+
+ADD JAR /opt/cloudera/parcels/CDH/lib/hive/lib/hive-hcatalog-core-1.1.0-cdh5.11.2.jar;
+
+-- ===============================================================
+-- CREATE EXTERNAL TABLE AS TLC
+
+create external table if not exists TLC
+(VendorID  int, 
+tpep_pickup_datetime timestamp,
+tpep_dropoff_datetime timestamp,
+passenger_count int,
+trip_distance double,
+RatecodeID int, 
+store_and_fwd_flag string, 
+PULocationID int,
+DOLocationID int,
+payment_type int,
+fare_amount double,
+extra double,
+mta_tax double,
+tip_amount double,
+tolls_amount double,
+improvement_surcharge double,
+total_amount double)
+row format delimited fields terminated by ','
+location '/common_folder/nyc_taxi_data/'
+tblproperties ("skip.header.line.count"="1");
+
+
+-- ===================Basic Data Quality Checks===================
+
+-- =========================Q1====================================
+-- How many records has each TPEP provider provided? Write a query that summarises the number of records of each provider.
+
+select vendorid,count(*) as count_TPEP from tlc
+group by vendorid;
+
+-- Output:
+
+-- vendorid     count_TPEP
+-- 2	     	647183
+-- 1	     	527386
+
+--Comments:
+
+-- Looking at the output  we can the table has 2 types of vendors.
+-- Vendors 2 has more record count than Vendor 1.
+
+
+-- =========================Q2====================================
+-- The data provided is for months November and December only. Check whether the data is consistent, 
+-- and if not, identify the data quality issues. Mention all data quality issues in comments.
+
+-- Assumption :
+-- Assuming the correct record from pickup 1st Nov 2017 00:00 till 31st Dec 2017 23:59:59
+-- and drop from 1st Nov 2017 00:00 till 1st Jan 2018 23:59:59 as valid 
+-- as a passenger may have taken a cab on 31st dec midnight and dropped off next day,
+-- thus considering 1st Jan 2018 as valid record.
+
+select year(tpep_pickup_datetime) as `pickup_year`,month(tpep_pickup_datetime) as `pickup_Month`,year(tpep_dropoff_datetime) as `Drop_year`,
+month(tpep_dropoff_datetime) as `Drop_Month`,count(*) as `Invalid_Data_Count` from tlc
+where tpep_pickup_datetime not between '2017-11-1 00:00:00.0' and '2017-12-31 23:59:59.0' or 
+tpep_dropoff_datetime not between '2017-11-1 00:00:00.0' and '2018-01-01 23:59:59.0'
+group by year(tpep_pickup_datetime),month(tpep_pickup_datetime),year(tpep_dropoff_datetime),
+month(tpep_dropoff_datetime);
+
+
+--Output :
+
+-- pickup_year 	pickup_Month  	Drop_year  	Drop_Month  	Invalid_Data_Count
+-- 2003		1		2003		1		1
+-- 2008		12		2008		12		1
+-- 2008		12		2009		1		1
+-- 2009		1		2009		1		1
+-- 2017		10		2017		10		2
+-- 2018		1		2018		1		4
+-- 2017		10		2017		11		4
+-- 2017		11		2019		4		1
+
+-- Comments :
+-- Based on the assumption we stated above we have found 15 records to have data quality issue.
+
+-- =========================Q3====================================
+-- You might have encountered unusual or erroneous rows in the dataset. 
+-- Can you conclude which vendor is doing a bad job in providing the records using different columns of the dataset? 
+-- Summarise your conclusions based on every column where these errors are present.
+
+select vendorid,count(*) as Error_Count from tlc
+where tpep_dropoff_datetime < tpep_pickup_datetime
+group by vendorid;
+
+-- Output :
+
+--vendorid 	Error_Count 
+--1		73
+
+-- Comments:
+-- Vendor 1 has provided wrong data where the pickup date is greater than the drop date
+
+select vendorid,count(*) as Error_Count from tlc
+where Passenger_count not between 1 and 6
+group by vendorid;
+
+-- Assumption :
+-- Assuming that a taxi can accomodate 6 passengers to max.
+
+--Output :
+
+--vendorid 	Error_Count 
+--2		26
+--1		6814
+
+-- Comments:
+-- Vendor 1 has provided more wrong data than Vendor 2 for passenger count
+
+select vendorid,count(*) as Error_Count from tlc
+where Trip_distance <0
+group by vendorid;
+
+--Output:
+
+--No Error in This
+
+select vendorid,count(*) as Error_Count from tlc
+where PULocationID <1
+group by vendorid;
+
+--Output:
+
+--No Error in This
+
+select vendorid,count(*) as Error_Count from tlc
+where DOLocationID <1
+group by vendorid;
+
+--Output:
+
+--No Error in This
+
+select vendorid,count(*) as Error_Count from tlc
+where RateCodeID not between 1 and 6
+group by vendorid;
+
+--Output:
+
+--vendorid 	Error_Count
+--2		1
+--1		8
+
+-- Comments:
+-- Vendor 1 has provided more wrong data than Vendor 2 for RateCodeID 
+
+select vendorid,count(*) as Error_Count from tlc
+where Store_and_fwd_flag not in ('Y','N')
+group by vendorid;
+
+--Output:
+
+--No Error in This
+
+select vendorid,count(*) as Error_Count from tlc
+where Payment_type not between 1 and 6
+group by vendorid;
+
+--Output:
+
+--No Error in This
+
+select vendorid,count(*) as Error_Count from tlc
+where Fare_amount<0
+group by vendorid;
+
+--Output:
+
+--vendorid 	Error_Count
+--2		558
+
+
+-- Comments:
+-- Vendor 2 has provided wrong data for Fare_amount
+-- No wrong entires found for Vendor 1.
+
+select vendorid,count(*) as Error_Count from tlc
+where Extra not in (0,0.5,1)
+group by vendorid;
+
+--Output:
+
+--vendorid 	Error_Count
+--2		3033
+--1		1823
+
+-- Comments:
+-- Vendor 2 has provided more wrong data than Vendor 1 for Extra
+
+select vendorid,count(*) as Error_Count from tlc
+where MTA_tax not in (0,0.5)
+group by vendorid;
+
+--Output:
+
+--vendorid 	Error_Count
+--2		547
+--1		1
+
+-- Comments:
+-- Vendor 2 has provided more wrong data than Vendor 1 for MTA_tax 
+
+select vendorid,count(*) as Error_Count from tlc
+where Improvement_surcharge <>0.3
+group by vendorid;
+
+--Output:
+
+--vendorid 	Error_Count
+--2		788
+--1		61
+
+-- Comments:
+-- Vendor 2 has provided more wrong data than Vendor 1 for Improvement_surcharge
+
+select vendorid,count(*) as Error_Count from tlc
+where Tip_amount < 0 or (Payment_type =2 and Tip_amount <> 0)
+group by vendorid;
+
+-- Assumption :
+-- As per the data dictionary cash payment tips are not include in the Tip_amount
+-- Thus while filter we are checking cash type payment records have tip_amount in the record or not.
+
+--Output :
+
+--vendorid 	Error_Count
+--2		4
+
+-- Comments:
+-- Vendor 2 has provided wrong data for Tip_amount 
+-- No error record found for Vendor 1
+
+select vendorid,count(*) as Error_Count from tlc
+where Tolls_amount < 0
+group by vendorid;
+
+--Output:
+
+--vendorid 	Error_Count
+--2		3
+
+-- Comments:
+-- Vendor 2 has provided wrong data for Tolls_amount 
+-- No error record found for Vendor 1
+
+select vendorid,count(*) as Error_Count from tlc
+where Total_amount < 0
+group by vendorid;
+
+--Output:
+
+--vendorid 	Error_Count
+--2		558
+
+-- Comments:
+-- Vendor 2 has provided more wrong data for Total_amount 
+-- No error record found for Vendor 1
+
+select vendorid,count(*) as Error_Count from tlc
+where tpep_dropoff_datetime < tpep_pickup_datetime or Passenger_count not between 1 and 6 or Trip_distance <0
+or RateCodeID not between 1 and 6 or Fare_amount<0 or Extra not in (0,0.5,1) or MTA_tax not in (0,0.5) or
+Improvement_surcharge <>0.3 or Tip_amount < 0 or Tolls_amount < 0 or Total_amount < 0
+group by vendorid;
+
+--Output:
+
+--vendorid 	Error_Count
+--2 		3496
+--1 		8738
+
+-- Comments:
+-- Vendor 1 has provided more wrong data than Vendor 2 
+-- Maximun error record was found for passenger_count provided by Vendor 1
+
+
+-- ========================Partitioning the Data===============================
+--These commands are prerequisites for running the code in the lab without error:
+
+SET hive.exec.max.dynamic.partitions=100000;
+SET hive.exec.max.dynamic.partitions.pernode=100000;
+
+-- dropping the TLC_partition_orc if it exist
+
+drop table TLC_partition_orc
+
+-- Creating the TLC_partition_orc, we have partioned the data based on month
+
+create external table if not exists TLC_partition_orc
+(VendorID  int, 
+tpep_pickup_datetime timestamp,
+tpep_dropoff_datetime timestamp,
+passenger_count int, 
+trip_distance double, 
+RatecodeID int, 
+store_and_fwd_flag string, 
+PULocationID int,
+DOLocationID int,
+payment_type int,
+fare_amount double,
+extra double,
+mta_tax double,
+tip_amount double,
+tolls_amount double,
+improvement_surcharge double,
+total_amount double)
+partitioned by (Mnth int)
+stored as orc location '/user/priyadarshigrv_gmail/Taxi_Partition_orc'
+tblproperties ("orc.compress"="SNAPPY");
+
+-- Inserting the data into the partitioned table
+
+insert overwrite table TLC_partition_orc partition(Mnth)
+select
+VendorID,
+tpep_pickup_datetime,
+tpep_dropoff_datetime,
+passenger_count,
+trip_distance,
+RatecodeID,
+store_and_fwd_flag,
+PULocationID,
+DOLocationID,
+payment_type,
+fare_amount,extra,
+mta_tax,
+tip_amount,
+tolls_amount,
+improvement_surcharge,
+total_amount,
+month(tpep_dropoff_datetime) Mnth
+from tlc
+where 
+(tpep_pickup_datetime >='2017-11-1 00:00:00.0' and tpep_pickup_datetime<='2017-12-31 23:59:59.0') and
+(tpep_dropoff_datetime >= '2017-11-1 00:00:00.0' and tpep_dropoff_datetime<='2018-01-01 23:59:59.0') and
+(tpep_dropoff_datetime >= tpep_pickup_datetime) and
+(Passenger_count between 1 and 6) and
+(trip_distance>=0) and
+(RateCodeID between 1 and 6) and
+(fare_amount>=0 ) and
+(extra in (0,0.5,1)) and
+(mta_tax in (0,0.5)) and
+(Tip_amount >= 0) and
+( tolls_amount >=0) and
+( Improvement_surcharge =0.3) and
+(Total_amount >= 0 )
+
+
+
+-- +++++++++++++++++++++++++++++++++++++++Analysis 1++++++++++++++++++++++++++++++++++++++++++++++
+
+-- =========================Q1====================================
+-- Compare the overall average fare per trip for November and December.
+
+select Mnth,round(avg(fare_amount),2) as Avg_Fare from TLC_partition_orc
+where mnth in(11,12)
+group by Mnth;
+
+--Output:
+
+--Mnth	Avg_Fare
+--11 	12.96
+--12 	12.76
+
+-- Comments:
+-- From above output we can tell that the overall average fare is high for November month.
+
+-- =========================Q2====================================
+-- Explore the ‘number of passengers per trip’ - how many trips are made by each level of ‘Passenger_count’? 
+-- Do most people travel solo or with other people?
+
+-- Assumption.
+-- Assuming that a taxi has a capacity of max 6 passegers.
+
+select passenger_count,count(*) as Trips_Made from TLC_partition_orc
+group by passenger_count
+order by Trips_Made desc;
+
+--Output:
+
+--passenger_count	Trips_Made 
+--1 			823973
+--2 			175833
+--5 			54275
+--3 			50423
+--6 			32996
+--4 			24820
+
+-- Comments:
+-- The above output shows the counts of passengers of ech levels.
+-- From above output we can tell that the most of the passenger wants to travel solo as the count seems to be higher.
+
+-- =========================Q3====================================
+-- Which is the most preferred mode of payment
+
+select payment_type,count(*) as Mode_Count from TLC_partition_orc
+group by payment_type
+order by Mode_Count desc;
+
+--Output :
+
+--payment_type	Mode_Count
+--1 		782421
+--2 		372694
+--3 		5725
+--4 		1480
+
+-- Comments:
+-- From the above output it is clear that maximum passenger has opted for payment_type as 1.
+-- According to the data dictionary payment_type 1 is credit card payment
+-- Thus credit card payment is the most preferred mode of payment.
+
+-- =========================Q4====================================
+-- What is the average tip paid per trip? 
+-- Compare the average tip with the 25th, 50th and 75th percentiles and comment whether the ‘average tip’ 
+-- is a representative statistic (of the central tendency) of ‘tip amount paid’.
+
+-- Assumption :
+-- As per the data dictionary cash payment tips are not include in the Tip_amount
+-- Thus we are checking what is the average tip amount with records including cash payment and without.
+
+select round(avg(Tip_amount),2) as Avg_Tip from TLC_partition_orc;
+
+--Output:
+
+-- Avg_Tip 
+-- 1.83
+
+-- Comments:
+-- with payment_type 2 i.e cash payment types the average tips comes to be 1.83
+
+select round(avg(Tip_amount),2) as Avg_Tip from TLC_partition_orc where payment_type != 2;
+
+--Output:
+
+-- Avg_Tip 
+-- 2.7 
+
+-- Comments:
+-- without payment_type 2 i.e cash payment types the average tips comes to be 2.7
+
+-- For comparing prupose we are not considering the payment_type 2 records
+
+select round(avg(tip_amount),2) as Average_Tip, round(percentile_approx(tip_amount,0.25),2)as 25th_Percentile_Tip,
+round(percentile_approx(tip_amount, 0.50),2)as 50th_Percentile_Tip,
+round(percentile_approx(tip_amount, 0.75),2)as 75th_Percentile_Tip
+from TLC_partition_orc
+where payment_type != 2;
+
+--Output:
+
+--Average_Tip	25th_Percentile_Tip	50th_Percentile_Tip 	75th_Percentile_Tip
+--2.7 		1.32 			2 			3.05
+
+-- Comments:
+-- From the above results the average tip is more than the 50th percentile thus not showing central tendency.
+
+-- =========================Q5====================================
+-- Explore the ‘Extra’ (charge) variable - what fraction of total trips have an extra charge is levied?
+
+select sum(CASE when extra != 0 THEN 1 ELSE 0 END)as Trips_With_Extra_Charge, count(*)as Total_Number_Trips,
+round(sum(CASE when extra != 0 THEN 1 ELSE 0 END)/count(*),3) as Fraction_Trips_With_Extra_Charge
+from TLC_partition_orc;
+
+--Output:
+
+--Trips_With_Extra_Charge	Total_Number_Trips	Fraction_Trips_With_Extra_Charge
+--534964 			1162320 		0.46
+
+-- Comments:
+-- About 46% of total trips have an extra charge is levied.
+
+-- +++++++++++++++++++++++++++++++++++++++Analysis 2++++++++++++++++++++++++++++++++++++++++++++++
+-- =========================Q1====================================
+-- What is the correlation between the number of passengers on any given trip, and the tip paid per trip?
+-- Do multiple travellers tip more compared to solo travellers?
+
+
+select round(corr(passenger_count, tip_amount),4) from TLC_partition_orc
+
+-- Output :
+
+-- -0.0051
+
+-- Comments :
+-- the value is fairly small although negative but its would be fair to say that passenger count
+-- is unrealted to the tip amount paid.
+
+select round(corr(is_solo, tip_amount),4) from
+(select case when passenger_count=1 then 1 else 0 end is_solo,tip_amount
+from TLC_partition_orc ) T;
+
+-- Output :
+
+-- 0.0054
+
+-- Comments :
+-- comparing only single rider their is still very low positive co-relation.
+
+select round(corr(is_not_solo, tip_amount),4) from
+(select case when passenger_count<>1 then 1 else 0 end is_not_solo,tip_amount
+from TLC_partition_orc ) T;
+
+-- Output :
+
+-- -0.0054
+
+-- Comments :
+-- comparing single vs multiple rider their is still very low negative co-relation
+-- Solo rider have tips more than multiple travellers
+
+-- =========================Q2====================================
+-- Segregate the data into five segments of ‘tip paid’: [0-5), [5-10), [10-15) , [15-20) and >=20. 
+-- Calculate the percentage share of each bucket 
+
+select Tip_Bucket, count(*)as Num_Records,
+round(count(*)/max(records_count),3)as Tip_Bucket_fraction
+from (select *, count(*) over () records_count,
+CASE when tip_amount >= 0 and tip_amount <5 then '[0-5)'
+when tip_amount >=5 and tip_amount < 10 then '[5-10)'
+when tip_amount >=10 and tip_amount < 15 then '[10-15)'
+when tip_amount >=15 and tip_amount < 20 then '[15-20)'
+else '>=20'
+end as Tip_Bucket
+   from TLC_partition_orc )as a
+group by Tip_Bucket
+order by Tip_Bucket_fraction desc;
+
+
+--Output :
+
+--Tip_Bucket	Num_Records	Tip_Bucket_fraction
+--[0-5) 	1073144 	0.923
+--[5-10) 	65485 		0.056
+--[10-15) 	20185 		0.017
+--[15-20) 	2312 		0.002
+-->=20 		1194 		0.001
+
+-- Comments :
+-- Total record Count - 1162320
+-- The percentage share of each bucket is shown in the above output.
+
+-- =========================Q3====================================
+-- Which month has a greater average ‘speed’ - November or December? 
+-- Note that the variable ‘speed’ will have to be derived from other metrics. 
+
+-- Assumption :
+-- we have converted the seconds into hours, so the speed is in miles/hour.
+
+select Mnth,round(avg(Trip_distance/((unix_timestamp(tpep_dropoff_datetime)-unix_timestamp(tpep_pickup_datetime))/3600)),3)
+as speed from TLC_partition_orc
+where Mnth in (11,12)
+group by Mnth
+order by speed desc;
+
+-- Output:
+
+-- Mnth	speed
+-- 12 	11.047
+-- 11 	10.948
+
+-- Comments:
+-- December month have greater average speed than the month of November.
+
+-- =========================Q4====================================
+-- Analyse the average speed of the most happening days of the year, 
+-- i.e. 31st December (New year’s eve) and 25th December (Christmas) and compare it with the overall average. 
+
+
+select Christmas_Av_Speed,NewYear_Av_Speed,Overall_Av_Speed,Christmas_Av_Speed-Overall_Av_Speed as C_O_diff,
+NewYear_Av_Speed-Overall_Av_Speed as N_O_diff from
+(select
+round(avg(CASE when mnth=12 and Day(tpep_dropoff_datetime)=25 THEN (trip_distance/((unix_timestamp(tpep_dropoff_datetime)
+-unix_timestamp(tpep_pickup_datetime))/3600)) ELSE null end),3)as Christmas_Av_Speed,
+
+round(avg(CASE when mnth=12 and Day(tpep_dropoff_datetime)=31 THEN (trip_distance/((unix_timestamp(tpep_dropoff_datetime)
+-unix_timestamp(tpep_pickup_datetime))/3600)) ELSE null end),3)as NewYear_Av_Speed,
+
+round(avg(CASE when mnth in (11,12) THEN (trip_distance/((unix_timestamp(tpep_dropoff_datetime)
+-unix_timestamp(tpep_pickup_datetime))/3600)) ELSE null end),3)as Overall_Av_Speed
+
+from TLC_partition_orc) a
+
+-- Output :
+
+-- Christmas_Av_Speed	NewYear_Av_Speed	Overall_Av_Speed	C_O_diff	N_O_diff
+-- 15.219 		13.206 			10.998 			4.221 		2.208
+
+-- Comments:
+-- The overall average speed is found to be 10.998
+-- Comparing the overall avergae with the most happening day we found that the 25th December (Christmas) tends have 4.221 more
+-- where as for 31st December (New year’s eve) tends have 2.208 more.
+-- Also on comparing the 31st December (New year’s eve) and 25th December (Christmas),25th December (Christmas) tends have 2.013 more average speed.
+
+-- =======================================================The End======================================================================================
